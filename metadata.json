@@ -1,0 +1,7 @@
+{
+  "name": "Reconcile PDF",
+  "description": "100% client-side, privacy-focused bank statement parser and CSV normalizer. Converts bank PDF statements into clean, normalized CSVs with coordinate-based table extraction and column remapping.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+

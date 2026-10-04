@@ -1,0 +1,2037 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Reconcile PDF - Client-Side Bank Statement Parser</title>
+  <meta name="description" content="100% client-side, privacy-focused bank statement parser and CSV normalizer. Extract transaction tables, remap columns, and export to CSV or Sheets without your data ever leaving your browser." />
+  <meta property="og:title" content="Reconcile PDF - Client-Side Bank Statement Parser" />
+  <meta property="og:description" content="100% client-side, privacy-focused bank statement parser and CSV normalizer. Extract transaction tables, remap columns, and export to CSV or Sheets without your data ever leaving your browser." />
+  <meta property="og:type" content="website" />
+  <meta name="twitter:card" content="summary_large_image" />
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#eff6ff',
+              100: '#dbeafe',
+              200: '#bfdbfe',
+              500: '#3b82f6',
+              600: '#2563eb',
+              700: '#1d4ed8',
+              800: '#1e40af',
+              900: '#1e3a8a',
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- PDF.js CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+
+  <!-- SheetJS (XLSX) CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+  <style>
+    /* Custom scrollbars & smooth transitions */
+    ::-webkit-scrollbar {
+      width: 7px;
+      height: 7px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #f1f5f9;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #94a3b8;
+    }
+    .dragover-active {
+      border-color: #2563eb !important;
+      background-color: #eff6ff !important;
+      transform: scale(1.008);
+    }
+    .split-table-container {
+      max-height: 520px;
+      min-height: 320px;
+    }
+    [contenteditable="true"]:focus {
+      outline: 2px solid #3b82f6;
+      background-color: #fff;
+    }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 antialiased min-h-screen flex flex-col font-sans selection:bg-blue-100 selection:text-blue-900">
+
+  <!-- Top Navigation Header -->
+  <header class="border-b border-slate-200 bg-white sticky top-0 z-30 shadow-xs">
+    <div class="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      
+      <!-- Brand & Title -->
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-700 via-blue-600 to-indigo-500 flex items-center justify-center text-white shadow-md shadow-blue-500/20">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          </svg>
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="text-xl font-bold tracking-tight text-slate-900">Reconcile<span class="text-blue-600">PDF</span></h1>
+            <span class="text-[10px] font-bold uppercase tracking-wider bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">Client Sandbox</span>
+          </div>
+          <p class="text-xs text-slate-500 hidden sm:block">Private Bank Statement Parser & CSV Normalizer</p>
+        </div>
+      </div>
+
+      <!-- Header Center: Security Guarantee Indicator -->
+      <div class="hidden md:flex items-center gap-2 px-3 py-1.5 bg-emerald-50 border border-emerald-200 rounded-full text-xs font-medium text-emerald-800">
+        <svg class="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+        </svg>
+        <span>Zero Network Uploads &bull; In-Memory Only</span>
+      </div>
+
+      <!-- Header Right: User Status & Quota Widget -->
+      <div class="flex items-center gap-3">
+        <!-- Usage Pill -->
+        <div id="quotaWidget" class="flex items-center gap-2 bg-slate-100 hover:bg-slate-200/80 transition-colors px-3 py-1.5 rounded-lg border border-slate-200 text-xs">
+          <span id="accountBadge" class="font-semibold text-slate-700">Guest</span>
+          <span class="text-slate-300">|</span>
+          <span id="quotaCountText" class="text-slate-600 font-medium">0 / 10 used</span>
+          <button id="quotaInfoBtn" title="Quota details" class="text-slate-400 hover:text-slate-600 ml-0.5">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </button>
+        </div>
+
+        <!-- Google User Profile / Mock Sign In Button -->
+        <div id="authContainer">
+          <button id="headerSignInBtn" class="flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-300 hover:border-slate-400 text-slate-700 hover:bg-slate-50 text-xs font-medium rounded-lg shadow-2xs transition-all">
+            <svg class="w-4 h-4" viewBox="0 0 24 24">
+              <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+              <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+              <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+              <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+            </svg>
+            <span>Sign In</span>
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </header>
+
+  <!-- Notification Banners Area -->
+  <div id="bannerContainer" class="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 mt-4 space-y-2">
+    <!-- Page Cap Banner (Revealed when pdf.numPages > 5) -->
+    <div id="pageCapBanner" class="hidden bg-amber-50 border border-amber-300 rounded-xl p-4 flex items-center justify-between text-amber-900 shadow-xs">
+      <div class="flex items-center gap-3">
+        <div class="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center text-amber-700 shrink-0">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+        </div>
+        <div>
+          <span class="font-semibold text-sm">Free tier processes up to 5 pages.</span>
+          <span id="pageCapDetails" class="text-xs text-amber-800 ml-1">Processed pages 1-5 of document. Upgrade to process all pages.</span>
+        </div>
+      </div>
+      <button id="bannerUpgradeBtn" class="shrink-0 text-xs font-semibold px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg transition-colors shadow-2xs">
+        Upgrade to Pro
+      </button>
+    </div>
+  </div>
+
+  <!-- Main Container -->
+  <main class="flex-1 max-w-[1600px] w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+
+    <!-- PHASE 1: Upload Hero / Dropzone -->
+    <div id="uploadHeroSection" class="transition-all duration-300">
+      
+      <!-- Privacy Badge (Prominently displayed) -->
+      <div class="max-w-3xl mx-auto mb-6">
+        <div class="bg-gradient-to-r from-emerald-50 via-teal-50 to-blue-50 border border-emerald-200/90 rounded-2xl p-4 sm:p-5 shadow-xs flex items-center gap-4">
+          <div class="w-12 h-12 rounded-xl bg-white border border-emerald-200 text-emerald-600 flex items-center justify-center shrink-0 shadow-2xs">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+            </svg>
+          </div>
+          <div>
+            <div class="flex items-center gap-2">
+              <h2 class="text-sm sm:text-base font-bold text-slate-900">
+                🔒 100% Private: Processed locally in your browser
+              </h2>
+              <span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-100 text-emerald-800">No Server Upload</span>
+            </div>
+            <p class="text-xs sm:text-sm text-slate-600 mt-0.5">
+              Financial data never leaves your device. PDF text coordinates are extracted via JavaScript in memory and never transmitted over the internet.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Dropzone Card -->
+      <div class="max-w-3xl mx-auto">
+        <div 
+          id="dropzone" 
+          class="relative border-2 border-dashed border-slate-300 hover:border-blue-500 rounded-3xl bg-white p-8 sm:p-12 text-center transition-all cursor-pointer shadow-sm group">
+          
+          <input type="file" id="fileInput" accept=".pdf,application/pdf" class="hidden" />
+
+          <div class="w-20 h-20 mx-auto mb-5 rounded-2xl bg-blue-50 group-hover:bg-blue-100/80 text-blue-600 flex items-center justify-center transition-transform group-hover:scale-110 duration-200">
+            <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+            </svg>
+          </div>
+
+          <h3 class="text-lg sm:text-xl font-bold text-slate-900 group-hover:text-blue-600 transition-colors">
+            Drop your bank statement PDF here
+          </h3>
+          <p class="text-sm text-slate-500 mt-1.5 max-w-md mx-auto">
+            Drag & drop your statement, or <span class="text-blue-600 font-semibold underline underline-offset-2">browse files</span> from your computer.
+          </p>
+
+          <div class="mt-6 flex flex-wrap items-center justify-center gap-3 text-xs text-slate-400">
+            <span class="flex items-center gap-1.5">
+              <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+              Chase, BofA, Wells Fargo, Citi
+            </span>
+            <span>&bull;</span>
+            <span class="flex items-center gap-1.5">
+              <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+              Up to 5 pages free
+            </span>
+            <span>&bull;</span>
+            <span class="flex items-center gap-1.5">
+              <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+              Side-by-side verification
+            </span>
+          </div>
+
+          <!-- Quick Test Demo Button -->
+          <div class="mt-8 pt-6 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-center gap-3">
+            <span class="text-xs text-slate-400">Don't have a statement on hand?</span>
+            <button 
+              id="loadSampleBtn" 
+              type="button" 
+              class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition-colors">
+              <svg class="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+              </svg>
+              <span>Load Sample Statement (Demo)</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Feature Badges -->
+      <div class="max-w-4xl mx-auto mt-12 grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs">
+          <div class="w-9 h-9 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold mb-3">1</div>
+          <h4 class="font-bold text-slate-900 text-sm">Coordinate Y-Clustering</h4>
+          <p class="text-xs text-slate-500 mt-1">Reconstructs spatial table rows from fragmented PDF vector text streams using high-precision Y-intercept alignment.</p>
+        </div>
+        <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs">
+          <div class="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold mb-3">2</div>
+          <h4 class="font-bold text-slate-900 text-sm">Side-by-Side Verification</h4>
+          <p class="text-xs text-slate-500 mt-1">View the original PDF rendered on HTML5 canvas while remapping columns and fine-tuning extracted records.</p>
+        </div>
+        <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs">
+          <div class="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold mb-3">3</div>
+          <h4 class="font-bold text-slate-900 text-sm">Instant Clipboard & CSV</h4>
+          <p class="text-xs text-slate-500 mt-1">Export clean standardized RFC 4180 CSV files or copy tab-separated records ready to paste directly into Excel or Google Sheets.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Processing State Indicator (Spinner) -->
+    <div id="processingSection" class="hidden max-w-xl mx-auto py-16 text-center">
+      <div class="inline-block relative">
+        <div class="w-16 h-16 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mx-auto"></div>
+        <div class="absolute inset-0 flex items-center justify-center">
+          <svg class="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          </svg>
+        </div>
+      </div>
+      <h3 id="processingTitle" class="text-lg font-bold text-slate-900 mt-6">Parsing Statement Coordinates...</h3>
+      <p id="processingSubtitle" class="text-sm text-slate-500 mt-1">Extracting text streams and clustering horizontal row geometries.</p>
+      
+      <!-- Progress Bar -->
+      <div class="w-full bg-slate-200 rounded-full h-2 mt-6 overflow-hidden max-w-md mx-auto">
+        <div id="processingProgressBar" class="bg-blue-600 h-2 rounded-full transition-all duration-300" style="width: 25%"></div>
+      </div>
+      <p id="processingProgressText" class="text-xs font-semibold text-slate-500 mt-2">Page 1 of 1</p>
+    </div>
+
+    <!-- PHASE 2 & 3: SCREEN 2 - SIDE-BY-SIDE SPLIT SCREEN (Two Columns on Desktop) -->
+    <div id="resultsSection" class="hidden space-y-5">
+
+      <!-- Top Summary Header Bar -->
+      <div class="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        
+        <!-- Left: File Details & Stats -->
+        <div class="flex items-center gap-3.5">
+          <div class="w-11 h-11 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+          </div>
+          <div>
+            <div class="flex items-center gap-2">
+              <h2 id="currentDocName" class="text-base font-bold text-slate-900 truncate max-w-xs sm:max-w-md">statement.pdf</h2>
+              <span id="pageCountBadge" class="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full font-medium">1 page</span>
+            </div>
+            <div class="flex items-center gap-2.5 text-xs text-slate-500 mt-0.5">
+              <span id="statRowCount">0 transactions detected</span>
+              <span>&bull;</span>
+              <span id="statParseTime">0.12s local parse</span>
+              <span>&bull;</span>
+              <span class="text-emerald-600 font-medium flex items-center gap-1">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                Parsed In-Memory
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right: Action Bar Buttons -->
+        <div class="flex flex-wrap items-center gap-2.5 w-full sm:w-auto">
+          <!-- Quick Swap Columns -->
+          <button 
+            id="swapDebitCreditBtn" 
+            title="Swap Debit and Credit mappings" 
+            class="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition-colors">
+            <svg class="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+            </svg>
+            <span>Swap Dr / Cr</span>
+          </button>
+
+          <!-- Copy Table to Clipboard Button -->
+          <button 
+            id="copyTableBtn" 
+            class="flex items-center gap-1.5 px-3.5 py-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold rounded-xl shadow-xs transition-all active:scale-95">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+            </svg>
+            <span id="copyBtnText">Copy Table</span>
+          </button>
+
+          <!-- Download CSV Button -->
+          <button 
+            id="downloadCsvBtn" 
+            class="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl shadow-sm shadow-blue-500/20 transition-all active:scale-95">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+            <span>Download CSV</span>
+          </button>
+
+          <!-- Export to Excel (.xlsx) Button -->
+          <button 
+            id="exportExcelBtn" 
+            class="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-xl shadow-sm shadow-emerald-500/20 transition-all active:scale-95">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            <span>Export to Excel (.xlsx)</span>
+          </button>
+
+          <!-- Upload New Document -->
+          <button 
+            id="newUploadBtn" 
+            title="Upload another statement" 
+            class="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-colors">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+      </div>
+
+      <!-- Financial Metric Cards -->
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+        <div class="bg-white p-3.5 rounded-xl border border-slate-200">
+          <p class="text-[11px] text-slate-500 font-medium">Total Transactions</p>
+          <p id="metricCount" class="text-lg sm:text-xl font-bold text-slate-900 mt-0.5">0</p>
+        </div>
+        <div class="bg-white p-3.5 rounded-xl border border-slate-200">
+          <p class="text-[11px] text-rose-500 font-medium">Total Debits (Outflow)</p>
+          <p id="metricDebits" class="text-lg sm:text-xl font-bold text-rose-600 mt-0.5">$0.00</p>
+        </div>
+        <div class="bg-white p-3.5 rounded-xl border border-slate-200">
+          <p class="text-[11px] text-emerald-600 font-medium">Total Credits (Inflow)</p>
+          <p id="metricCredits" class="text-lg sm:text-xl font-bold text-emerald-600 mt-0.5">$0.00</p>
+        </div>
+        <div class="bg-white p-3.5 rounded-xl border border-slate-200">
+          <p class="text-[11px] text-blue-600 font-medium">Net Transaction Flux</p>
+          <p id="metricNet" class="text-lg sm:text-xl font-bold text-blue-700 mt-0.5">$0.00</p>
+        </div>
+      </div>
+
+      <!-- SIDE-BY-SIDE SPLIT SCREEN GRID -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+        
+        <!-- LEFT COLUMN: PDF Canvas Viewer & Page Browsing Controls -->
+        <div class="lg:col-span-5 bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs flex flex-col">
+          
+          <!-- PDF Viewer Header -->
+          <div class="p-3.5 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="w-2.5 h-2.5 rounded-full bg-red-500 inline-block"></span>
+              <h3 class="text-xs font-bold uppercase tracking-wider text-slate-700">Original Document View</h3>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <button id="zoomOutBtn" title="Zoom Out" class="p-1 hover:bg-slate-200 rounded text-slate-600 text-xs">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 12H4"/></svg>
+              </button>
+              <span id="zoomLevelText" class="text-[11px] text-slate-500 font-mono">100%</span>
+              <button id="zoomInBtn" title="Zoom In" class="p-1 hover:bg-slate-200 rounded text-slate-600 text-xs">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+              </button>
+              <button id="zoomFitBtn" title="Fit to width" class="text-[10px] px-1.5 py-0.5 bg-white border border-slate-300 hover:bg-slate-100 rounded text-slate-600 font-semibold ml-1">
+                Fit
+              </button>
+            </div>
+          </div>
+
+          <!-- Canvas Viewport with Scrolling -->
+          <div id="canvasViewport" class="bg-slate-800/95 p-4 flex items-center justify-center overflow-auto min-h-[480px] max-h-[640px] relative">
+            <!-- Loading indicator over canvas -->
+            <div id="canvasLoading" class="hidden absolute inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center z-10">
+              <div class="flex items-center gap-2 px-3 py-1.5 bg-slate-900 text-white rounded-lg text-xs shadow-lg">
+                <div class="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                <span>Rendering Page...</span>
+              </div>
+            </div>
+
+            <!-- PDF Page Canvas -->
+            <canvas id="pdfCanvas" class="shadow-2xl bg-white rounded border border-slate-600 transition-all"></canvas>
+          </div>
+
+          <!-- Bottom Navigation Bar: 'Previous Page' and 'Next Page' (Browsing Pages 1 to 5) -->
+          <div class="p-3 bg-slate-50 border-t border-slate-200 flex items-center justify-between text-xs">
+            <button 
+              id="prevPageBtn" 
+              class="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 font-semibold shadow-2xs transition-all disabled:opacity-40 disabled:cursor-not-allowed">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+              </svg>
+              <span>Previous Page</span>
+            </button>
+
+            <div class="text-center">
+              <span id="pageIndicatorText" class="font-bold text-slate-800 text-xs">Page 1 of 1</span>
+              <div id="pageLimitHint" class="text-[10px] text-slate-400">Pages 1 to 5 available</div>
+            </div>
+
+            <button 
+              id="nextPageBtn" 
+              class="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 font-semibold shadow-2xs transition-all disabled:opacity-40 disabled:cursor-not-allowed">
+              <span>Next Page</span>
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+          </div>
+
+        </div>
+
+        <!-- RIGHT COLUMN: Table Mapper & Preview + Column Mapping Controls -->
+        <div class="lg:col-span-7 bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs flex flex-col">
+          
+          <!-- Table Toolbar -->
+          <div class="p-3.5 border-b border-slate-200 bg-slate-50 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div class="flex items-center gap-2">
+              <span class="w-2.5 h-2.5 rounded-full bg-blue-600 inline-block"></span>
+              <h3 class="text-xs font-bold uppercase tracking-wider text-slate-700">Parsed Table & Column Mapper</h3>
+            </div>
+            
+            <!-- Filter / Search & Row Add -->
+            <div class="flex items-center gap-2 w-full sm:w-auto">
+              <div class="relative flex-1 sm:w-56">
+                <input 
+                  type="text" 
+                  id="tableSearchInput" 
+                  placeholder="Filter transactions..." 
+                  class="w-full text-xs pl-7 pr-2.5 py-1.5 bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500" 
+                />
+                <svg class="w-3.5 h-3.5 text-slate-400 absolute left-2 top-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+              </div>
+              <button 
+                id="addRowBtn" 
+                title="Add a manual transaction row" 
+                class="px-2.5 py-1.5 bg-white border border-slate-300 hover:border-slate-400 text-slate-700 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                <span>Add Row</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Table Container with Y-Clustered & Mapped Data -->
+          <div class="overflow-x-auto split-table-container">
+            <table class="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr class="bg-slate-100/90 border-b border-slate-200 text-slate-700 sticky top-0 z-20 backdrop-blur-xs">
+                  <th class="p-2.5 font-semibold text-slate-500 text-center w-10 min-w-[40px]">#</th>
+                  
+                  <!-- Column 0: Date (>= 130px) -->
+                  <th class="p-2.5 min-w-[130px]">
+                    <div class="flex flex-col gap-1">
+                      <span class="font-bold text-slate-700 text-[11px]">Col A</span>
+                      <select data-col-idx="0" class="col-mapper-select text-xs bg-white border border-slate-300 rounded-md px-1.5 py-1 font-medium focus:ring-1 focus:ring-blue-500">
+                        <option value="Date" selected>Date</option>
+                        <option value="Description">Description</option>
+                        <option value="Debit">Debit</option>
+                        <option value="Credit">Credit</option>
+                        <option value="Balance">Balance</option>
+                        <option value="Ignore">Ignore</option>
+                      </select>
+                    </div>
+                  </th>
+
+                  <!-- Column 1: Description (>= 300px) -->
+                  <th class="p-2.5 min-w-[300px]">
+                    <div class="flex flex-col gap-1">
+                      <span class="font-bold text-slate-700 text-[11px]">Col B</span>
+                      <select data-col-idx="1" class="col-mapper-select text-xs bg-white border border-slate-300 rounded-md px-1.5 py-1 font-medium focus:ring-1 focus:ring-blue-500">
+                        <option value="Date">Date</option>
+                        <option value="Description" selected>Description</option>
+                        <option value="Debit">Debit</option>
+                        <option value="Credit">Credit</option>
+                        <option value="Balance">Balance</option>
+                        <option value="Ignore">Ignore</option>
+                      </select>
+                    </div>
+                  </th>
+
+                  <!-- Column 2: Debit (>= 130px) -->
+                  <th class="p-2.5 min-w-[130px]">
+                    <div class="flex flex-col gap-1">
+                      <span class="font-bold text-slate-700 text-[11px]">Col C</span>
+                      <select data-col-idx="2" class="col-mapper-select text-xs bg-white border border-slate-300 rounded-md px-1.5 py-1 font-medium focus:ring-1 focus:ring-blue-500">
+                        <option value="Date">Date</option>
+                        <option value="Description">Description</option>
+                        <option value="Debit" selected>Debit</option>
+                        <option value="Credit">Credit</option>
+                        <option value="Balance">Balance</option>
+                        <option value="Ignore">Ignore</option>
+                      </select>
+                    </div>
+                  </th>
+
+                  <!-- Column 3: Credit (>= 130px) -->
+                  <th class="p-2.5 min-w-[130px]">
+                    <div class="flex flex-col gap-1">
+                      <span class="font-bold text-slate-700 text-[11px]">Col D</span>
+                      <select data-col-idx="3" class="col-mapper-select text-xs bg-white border border-slate-300 rounded-md px-1.5 py-1 font-medium focus:ring-1 focus:ring-blue-500">
+                        <option value="Date">Date</option>
+                        <option value="Description">Description</option>
+                        <option value="Debit">Debit</option>
+                        <option value="Credit" selected>Credit</option>
+                        <option value="Balance">Balance</option>
+                        <option value="Ignore">Ignore</option>
+                      </select>
+                    </div>
+                  </th>
+
+                  <!-- Column 4: Balance (>= 130px) -->
+                  <th class="p-2.5 min-w-[130px]">
+                    <div class="flex flex-col gap-1">
+                      <span class="font-bold text-slate-700 text-[11px]">Col E</span>
+                      <select data-col-idx="4" class="col-mapper-select text-xs bg-white border border-slate-300 rounded-md px-1.5 py-1 font-medium focus:ring-1 focus:ring-blue-500">
+                        <option value="Date">Date</option>
+                        <option value="Description">Description</option>
+                        <option value="Debit">Debit</option>
+                        <option value="Credit">Credit</option>
+                        <option value="Balance" selected>Balance</option>
+                        <option value="Ignore">Ignore</option>
+                      </select>
+                    </div>
+                  </th>
+
+                  <!-- Action column -->
+                  <th class="p-2.5 text-center w-10 min-w-[40px]">
+                    <span class="sr-only">Actions</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody id="transactionTableBody" class="divide-y divide-slate-100 bg-white">
+                <!-- Populated dynamically via JS -->
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Table Footer / Tip -->
+          <div class="p-3 bg-slate-50 border-t border-slate-200 flex items-center justify-between text-xs text-slate-500">
+            <span id="visibleRowCountText">Showing 0 rows</span>
+            <span class="text-slate-400 text-[11px]">Click cells to edit &bull; Remap columns via headers</span>
+          </div>
+
+        </div>
+
+      </div>
+
+    </div>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="border-t border-slate-200 bg-white py-6 mt-12 text-center text-xs text-slate-500">
+    <div class="max-w-[1600px] mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
+      <div class="flex items-center gap-2">
+        <span class="font-bold text-slate-700">Reconcile PDF</span>
+        <span>&bull;</span>
+        <span>100% Client-Side Privacy Architecture</span>
+      </div>
+      <div class="flex items-center gap-4 text-slate-400">
+        <button id="footerResetBtn" class="hover:text-rose-600 underline">Reset Local Quota State</button>
+        <span>&bull;</span>
+        <span>Runs entirely inside your browser</span>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Toast Notification -->
+  <div id="toast" class="fixed bottom-6 right-6 z-50 transform translate-y-16 opacity-0 transition-all duration-300 pointer-events-none flex items-center gap-2.5 px-4 py-3 rounded-xl bg-slate-900 text-white text-xs font-semibold shadow-xl">
+    <span id="toastIcon">📋</span>
+    <span id="toastMsg">Copied table to clipboard!</span>
+  </div>
+
+  <!-- MODAL 1: Google Sign In (Demo / Test Mode) -->
+  <div id="googleAuthModal" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs hidden items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-md w-full p-6 sm:p-8 shadow-2xl border border-slate-200 transform scale-95 transition-transform duration-200 text-left" id="googleModalCard">
+      
+      <div class="flex items-center justify-between mb-4">
+        <div class="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center">
+          <svg class="w-6 h-6" viewBox="0 0 24 24">
+            <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+            <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+            <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+            <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+          </svg>
+        </div>
+        <button id="closeAuthModalBtn" class="p-1 text-slate-400 hover:text-slate-600 rounded-lg">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+
+      <h3 class="text-xl font-bold text-slate-900">Sign in with Google (Demo / Test Mode)</h3>
+      <p class="text-xs sm:text-sm text-slate-600 mt-1">
+        Sign in to unlock <strong class="text-blue-600 font-semibold">10 free weekly conversions</strong> and secure in-memory workspace sync.
+      </p>
+
+      <form id="authModalForm" class="mt-5 space-y-4">
+        <div>
+          <label for="authNameInput" class="block text-xs font-semibold text-slate-700 mb-1">Your Name</label>
+          <input 
+            type="text" 
+            id="authNameInput" 
+            required 
+            placeholder="e.g. Jane Doe" 
+            class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+          />
+        </div>
+
+        <div>
+          <label for="authEmailInput" class="block text-xs font-semibold text-slate-700 mb-1">Email Address</label>
+          <input 
+            type="email" 
+            id="authEmailInput" 
+            required 
+            placeholder="e.g. jane.doe@example.com" 
+            class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+          />
+        </div>
+
+        <div class="pt-2">
+          <button 
+            type="submit" 
+            id="authSubmitBtn" 
+            class="w-full flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs sm:text-sm rounded-xl shadow-md shadow-blue-500/25 hover:shadow-lg transition-all active:scale-[0.99]">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+            <span>Continue to App</span>
+          </button>
+        </div>
+
+        <p class="text-[11px] text-slate-400 text-center">
+          🔒 100% Client-Side. Saved strictly to your local browser storage.
+        </p>
+      </form>
+
+    </div>
+  </div>
+
+  <!-- MODAL 2: Upgrade to Pro (Triggered when 7-day conversions reach 10) -->
+  <div id="upgradeProModal" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs hidden items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-lg w-full p-6 sm:p-8 shadow-2xl border border-slate-200 text-left" id="proModalCard">
+      
+      <div class="flex items-center justify-between">
+        <span class="text-xs font-bold uppercase tracking-wider bg-blue-100 text-blue-700 px-3 py-1 rounded-full">Pro Tier</span>
+        <button id="closeProModalBtn" class="text-slate-400 hover:text-slate-600">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+
+      <h3 class="text-2xl font-bold text-slate-900 mt-3">You've reached your weekly free limit</h3>
+      <p class="text-sm text-slate-600 mt-1.5">
+        You've processed <strong class="text-slate-900">10 conversions</strong> in the last 7 days. Upgrade to Pro for unlimited conversions and multi-page bulk processing.
+      </p>
+
+      <!-- Pro Feature Comparison -->
+      <div class="mt-5 space-y-2.5 bg-slate-50 p-4 rounded-2xl border border-slate-200 text-xs">
+        <div class="flex items-center gap-2.5 text-slate-700">
+          <svg class="w-4 h-4 text-emerald-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+          <span><strong>Unlimited pages per document</strong> (no 5-page ceiling)</span>
+        </div>
+        <div class="flex items-center gap-2.5 text-slate-700">
+          <svg class="w-4 h-4 text-emerald-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+          <span><strong>Unlimited conversions</strong> with zero weekly cooldown</span>
+        </div>
+        <div class="flex items-center gap-2.5 text-slate-700">
+          <svg class="w-4 h-4 text-emerald-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+          <span><strong>Batch Multi-PDF processing</strong> & direct QuickBooks / Xero QBO export</span>
+        </div>
+        <div class="flex items-center gap-2.5 text-slate-700">
+          <svg class="w-4 h-4 text-emerald-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+          <span><strong>Custom regex transaction rules</strong> & auto-categorization</span>
+        </div>
+      </div>
+
+      <div class="mt-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div>
+          <span class="text-2xl font-black text-slate-900">$19</span>
+          <span class="text-xs text-slate-500">/ month</span>
+        </div>
+        <div class="flex items-center gap-2 w-full sm:w-auto">
+          <button 
+            id="mockUpgradeProBtn" 
+            class="flex-1 sm:flex-none px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-md shadow-blue-500/25 transition-all">
+            Unlock Pro (Instant Demo)
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- APPLICATION LOGIC & PDF.JS PROCESSING -->
+  <script>
+    // Initialize PDF.js worker
+    if (typeof pdfjsLib !== 'undefined') {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    }
+
+    // App State Management
+    const STATE = {
+      user: {
+        signedIn: false,
+        name: 'Guest',
+        email: '',
+        isPro: false
+      },
+      quota: {
+        totalConversions: 0,
+        conversions: [] // list of timestamps
+      },
+      pdfDoc: null, // Active PDF.js document instance
+      currentPageNum: 1,
+      zoomScale: 1.0,
+      currentDoc: {
+        name: '',
+        numPages: 0,
+        processedPages: 0,
+        rawRows: [],
+        mappedTransactions: []
+      },
+      columnMapping: ['Date', 'Description', 'Debit', 'Credit', 'Balance'],
+      pendingConversionAction: null
+    };
+
+    let activeRenderTask = null;
+
+    // Local Storage Keys
+    const LS_USER_KEY = 'reconcile_pdf_user';
+    const LS_QUOTA_KEY = 'reconcile_pdf_quota';
+
+    // DOM Elements
+    const dropzone = document.getElementById('dropzone');
+    const fileInput = document.getElementById('fileInput');
+    const loadSampleBtn = document.getElementById('loadSampleBtn');
+    const uploadHeroSection = document.getElementById('uploadHeroSection');
+    const processingSection = document.getElementById('processingSection');
+    const resultsSection = document.getElementById('resultsSection');
+    const pageCapBanner = document.getElementById('pageCapBanner');
+    const pageCapDetails = document.getElementById('pageCapDetails');
+    const bannerUpgradeBtn = document.getElementById('bannerUpgradeBtn');
+    
+    // Auth & Modals
+    const authContainer = document.getElementById('authContainer');
+    const quotaWidget = document.getElementById('quotaWidget');
+    const accountBadge = document.getElementById('accountBadge');
+    const quotaCountText = document.getElementById('quotaCountText');
+    const quotaInfoBtn = document.getElementById('quotaInfoBtn');
+    const googleAuthModal = document.getElementById('googleAuthModal');
+    const authModalForm = document.getElementById('authModalForm');
+    const authNameInput = document.getElementById('authNameInput');
+    const authEmailInput = document.getElementById('authEmailInput');
+    const closeAuthModalBtn = document.getElementById('closeAuthModalBtn');
+    const upgradeProModal = document.getElementById('upgradeProModal');
+    const closeProModalBtn = document.getElementById('closeProModalBtn');
+    const mockUpgradeProBtn = document.getElementById('mockUpgradeProBtn');
+    const footerResetBtn = document.getElementById('footerResetBtn');
+
+    // Results Header & Actions
+    const currentDocName = document.getElementById('currentDocName');
+    const pageCountBadge = document.getElementById('pageCountBadge');
+    const statRowCount = document.getElementById('statRowCount');
+    const statParseTime = document.getElementById('statParseTime');
+    const swapDebitCreditBtn = document.getElementById('swapDebitCreditBtn');
+    const copyTableBtn = document.getElementById('copyTableBtn');
+    const copyBtnText = document.getElementById('copyBtnText');
+    const downloadCsvBtn = document.getElementById('downloadCsvBtn');
+    const exportExcelBtn = document.getElementById('exportExcelBtn');
+    const newUploadBtn = document.getElementById('newUploadBtn');
+
+    // PDF Canvas & Browsing Controls
+    const pdfCanvas = document.getElementById('pdfCanvas');
+    const canvasViewport = document.getElementById('canvasViewport');
+    const canvasLoading = document.getElementById('canvasLoading');
+    const prevPageBtn = document.getElementById('prevPageBtn');
+    const nextPageBtn = document.getElementById('nextPageBtn');
+    const pageIndicatorText = document.getElementById('pageIndicatorText');
+    const pageLimitHint = document.getElementById('pageLimitHint');
+    const zoomInBtn = document.getElementById('zoomInBtn');
+    const zoomOutBtn = document.getElementById('zoomOutBtn');
+    const zoomFitBtn = document.getElementById('zoomFitBtn');
+    const zoomLevelText = document.getElementById('zoomLevelText');
+
+    // Metrics
+    const metricCount = document.getElementById('metricCount');
+    const metricDebits = document.getElementById('metricDebits');
+    const metricCredits = document.getElementById('metricCredits');
+    const metricNet = document.getElementById('metricNet');
+
+    // Table
+    const transactionTableBody = document.getElementById('transactionTableBody');
+    const tableSearchInput = document.getElementById('tableSearchInput');
+    const addRowBtn = document.getElementById('addRowBtn');
+    const visibleRowCountText = document.getElementById('visibleRowCountText');
+    const colMapperSelects = document.querySelectorAll('.col-mapper-select');
+    const toast = document.getElementById('toast');
+    const toastMsg = document.getElementById('toastMsg');
+    const toastIcon = document.getElementById('toastIcon');
+
+    // ==========================================
+    // 1. Quota & Auth Management
+    // ==========================================
+    function loadPersistedState() {
+      try {
+        const storedUser = localStorage.getItem(LS_USER_KEY);
+        if (storedUser) {
+          STATE.user = JSON.parse(storedUser);
+        }
+        const storedQuota = localStorage.getItem(LS_QUOTA_KEY);
+        if (storedQuota) {
+          STATE.quota = JSON.parse(storedQuota);
+        }
+      } catch (err) {
+        console.warn('Error reading from localStorage:', err);
+      }
+      cleanupSevenDayQuota();
+      renderAuthAndQuotaUI();
+    }
+
+    function saveState() {
+      try {
+        localStorage.setItem(LS_USER_KEY, JSON.stringify(STATE.user));
+        localStorage.setItem(LS_QUOTA_KEY, JSON.stringify(STATE.quota));
+      } catch (err) {
+        console.warn('Error saving to localStorage:', err);
+      }
+      renderAuthAndQuotaUI();
+    }
+
+    function cleanupSevenDayQuota() {
+      const now = Date.now();
+      const sevenDaysAgo = now - (7 * 24 * 60 * 60 * 1000);
+      if (Array.isArray(STATE.quota.conversions)) {
+        STATE.quota.conversions = STATE.quota.conversions.filter(ts => ts > sevenDaysAgo);
+      } else {
+        STATE.quota.conversions = [];
+      }
+    }
+
+    function getWeeklyConversionCount() {
+      cleanupSevenDayQuota();
+      return STATE.quota.conversions.length;
+    }
+
+    function getInitials(name) {
+      if (!name || typeof name !== 'string') return 'U';
+      const clean = name.trim();
+      if (!clean) return 'U';
+      const parts = clean.split(/\s+/).filter(Boolean);
+      if (parts.length >= 2) {
+        return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+      }
+      return clean.slice(0, 2).toUpperCase();
+    }
+
+    function renderAuthAndQuotaUI() {
+      const count = getWeeklyConversionCount();
+
+      if (STATE.user.isPro) {
+        accountBadge.textContent = 'Pro Member';
+        accountBadge.className = 'font-semibold text-blue-700 bg-blue-100 px-1.5 py-0.5 rounded text-[10px]';
+        quotaCountText.textContent = 'Unlimited';
+      } else if (STATE.user.signedIn) {
+        accountBadge.textContent = STATE.user.name || 'Member';
+        accountBadge.className = 'font-semibold text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded text-[10px]';
+        quotaCountText.textContent = `${count} / 10 weekly`;
+      } else {
+        accountBadge.textContent = 'Guest';
+        accountBadge.className = 'font-semibold text-slate-700';
+        quotaCountText.textContent = `${count} / 10 used`;
+      }
+
+      if (STATE.user.signedIn) {
+        const initials = getInitials(STATE.user.name);
+        const displayName = escapeHtml(STATE.user.name || 'User');
+        authContainer.innerHTML = `
+          <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2 bg-slate-100/90 border border-slate-200 pl-1 pr-2.5 py-0.5 rounded-full">
+              <div class="w-6 h-6 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center font-bold text-[10px] shadow-2xs">
+                ${escapeHtml(initials)}
+              </div>
+              <span class="text-xs font-semibold text-slate-800 max-w-[120px] truncate">${displayName}</span>
+            </div>
+            <button id="userSignOutBtn" title="Sign out" class="text-xs text-slate-500 hover:text-rose-600 underline font-medium transition-colors">Sign Out</button>
+          </div>
+        `;
+        document.getElementById('userSignOutBtn').addEventListener('click', handleSignOut);
+      } else {
+        authContainer.innerHTML = `
+          <button id="headerSignInBtn" class="flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-300 hover:border-slate-400 text-slate-700 hover:bg-slate-50 text-xs font-medium rounded-lg shadow-2xs transition-all">
+            <svg class="w-4 h-4" viewBox="0 0 24 24">
+              <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+              <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+              <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+              <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+            </svg>
+            <span>Sign In</span>
+          </button>
+        `;
+        document.getElementById('headerSignInBtn').addEventListener('click', openGoogleModal);
+      }
+    }
+
+    function checkQuotaGate(onAllowed) {
+      if (STATE.user.isPro) {
+        onAllowed();
+        return;
+      }
+
+      cleanupSevenDayQuota();
+      const weeklyCount = STATE.quota.conversions.length;
+      const totalAllTime = STATE.quota.totalConversions || 0;
+
+      if (weeklyCount >= 10) {
+        openProModal();
+        return;
+      }
+
+      if (totalAllTime >= 1 && !STATE.user.signedIn) {
+        STATE.pendingConversionAction = onAllowed;
+        openGoogleModal();
+        return;
+      }
+
+      onAllowed();
+    }
+
+    function recordConversion() {
+      STATE.quota.totalConversions = (STATE.quota.totalConversions || 0) + 1;
+      STATE.quota.conversions.push(Date.now());
+      saveState();
+    }
+
+    function openGoogleModal() {
+      if (authNameInput && !authNameInput.value && STATE.user && STATE.user.name && STATE.user.name !== 'Guest') {
+        authNameInput.value = STATE.user.name;
+      }
+      if (authEmailInput && !authEmailInput.value && STATE.user && STATE.user.email) {
+        authEmailInput.value = STATE.user.email;
+      }
+      googleAuthModal.classList.remove('hidden');
+      googleAuthModal.classList.add('flex');
+      setTimeout(() => {
+        if (authNameInput) authNameInput.focus();
+      }, 50);
+    }
+
+    function closeGoogleModal() {
+      googleAuthModal.classList.add('hidden');
+      googleAuthModal.classList.remove('flex');
+    }
+
+    function openProModal() {
+      upgradeProModal.classList.remove('hidden');
+      upgradeProModal.classList.add('flex');
+    }
+
+    function closeProModal() {
+      upgradeProModal.classList.add('hidden');
+      upgradeProModal.classList.remove('flex');
+    }
+
+    // Dynamic Mock Sign-In Form Handler
+    authModalForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const enteredName = (authNameInput.value || '').trim() || 'Demo User';
+      const enteredEmail = (authEmailInput.value || '').trim() || '';
+
+      STATE.user = {
+        signedIn: true,
+        name: enteredName,
+        email: enteredEmail,
+        timestamp: Date.now(),
+        isPro: false
+      };
+
+      saveState();
+      closeGoogleModal();
+      showToast(`Welcome, ${enteredName}! 10 weekly conversions unlocked.`);
+
+      if (typeof STATE.pendingConversionAction === 'function') {
+        const action = STATE.pendingConversionAction;
+        STATE.pendingConversionAction = null;
+        action();
+      }
+    });
+
+    function handleSignOut() {
+      STATE.user = {
+        signedIn: false,
+        name: 'Guest',
+        email: '',
+        isPro: false
+      };
+      try {
+        localStorage.removeItem(LS_USER_KEY);
+      } catch (err) {
+        console.warn('Error clearing localStorage user:', err);
+      }
+      saveState();
+      showToast('Signed out. Reset to Guest mode.');
+    }
+
+    function handleUpgradePro() {
+      STATE.user.isPro = true;
+      saveState();
+      closeProModal();
+      pageCapBanner.classList.add('hidden');
+      updatePageControls();
+      showToast('🎉 Upgraded to Pro! Unlimited pages & conversions.');
+    }
+
+    function resetQuotaState() {
+      STATE.user = { signedIn: false, name: 'Guest', email: '', isPro: false };
+      STATE.quota = { totalConversions: 0, conversions: [] };
+      saveState();
+      showToast('Local quota state reset to initial guest.');
+    }
+
+    // ==========================================
+    // 2. Drag & Drop and File Handling
+    // ==========================================
+    dropzone.addEventListener('click', () => fileInput.click());
+
+    ['dragenter', 'dragover'].forEach(evt => {
+      dropzone.addEventListener(evt, e => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropzone.classList.add('dragover-active');
+      });
+    });
+
+    ['dragleave', 'drop'].forEach(evt => {
+      dropzone.addEventListener(evt, e => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropzone.classList.remove('dragover-active');
+      });
+    });
+
+    dropzone.addEventListener('drop', e => {
+      const files = e.dataTransfer.files;
+      if (files && files.length > 0) {
+        handleFileSelected(files[0]);
+      }
+    });
+
+    fileInput.addEventListener('change', e => {
+      if (e.target.files && e.target.files.length > 0) {
+        handleFileSelected(e.target.files[0]);
+      }
+    });
+
+    function handleFileSelected(file) {
+      if (!file || !file.name.toLowerCase().endsWith('.pdf')) {
+        showToast('Please upload a valid .pdf file.', '⚠️');
+        return;
+      }
+
+      checkQuotaGate(() => {
+        parsePdfFile(file);
+      });
+    }
+
+    // ==========================================
+    // 3. PDF.js Coordinate Grouping & Extraction
+    // ==========================================
+    async function parsePdfFile(file) {
+      const startTime = performance.now();
+      showProcessingUI(file.name);
+
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+        const pdf = await loadingTask.promise;
+
+        STATE.pdfDoc = pdf; // Save active instance for Left Column Canvas Viewer
+        STATE.currentPageNum = 1;
+
+        const totalPages = pdf.numPages;
+        const pageCap = 5;
+        const pagesToParse = STATE.user.isPro ? totalPages : Math.min(totalPages, pageCap);
+
+        STATE.currentDoc.name = file.name;
+        STATE.currentDoc.numPages = totalPages;
+        STATE.currentDoc.processedPages = pagesToParse;
+
+        // Collect rows across pages
+        const allClusteredRows = [];
+
+        for (let pageNum = 1; pageNum <= pagesToParse; pageNum++) {
+          updateProcessingProgress(pageNum, pagesToParse);
+          const page = await pdf.getPage(pageNum);
+          const textContent = await page.getTextContent();
+          
+          // Cluster text items on this page by Y coordinates
+          const pageRows = clusterPageItemsByY(textContent.items);
+          allClusteredRows.push(...pageRows);
+        }
+
+        // Convert clustered line texts into normalized transaction structures
+        const rawTransactions = extractTransactionsFromRows(allClusteredRows);
+
+        const duration = ((performance.now() - startTime) / 1000).toFixed(2);
+        recordConversion();
+        displayResults(rawTransactions, duration);
+
+        // Render Page 1 immediately on the left canvas
+        await renderPdfPage(1);
+
+      } catch (err) {
+        console.error('PDF parsing error:', err);
+        showToast('Failed to parse PDF: ' + (err.message || 'Unknown error'), '❌');
+        hideProcessingUI();
+      }
+    }
+
+    /**
+     * Coordinate Grouping Algorithm:
+     * Groups text items with similar Y positions into lines/rows.
+     * Within each row, items are sorted from left to right by their X coordinate.
+     */
+    function clusterPageItemsByY(items) {
+      const validItems = items.filter(it => it.str && it.str.trim().length > 0);
+      const rows = [];
+      const yTolerance = 4.0;
+
+      for (const item of validItems) {
+        const x = item.transform[4];
+        const y = item.transform[5];
+        const text = item.str.trim();
+
+        let match = rows.find(r => Math.abs(r.y - y) <= yTolerance);
+        if (!match) {
+          match = { y: y, items: [] };
+          rows.push(match);
+        }
+        match.items.push({ x, y, text });
+      }
+
+      // Sort rows top-to-bottom
+      rows.sort((a, b) => b.y - a.y);
+
+      // Within each row, sort left-to-right
+      const formattedRows = [];
+      for (const row of rows) {
+        row.items.sort((a, b) => a.x - b.x);
+        formattedRows.push(row.items.map(it => it.text));
+      }
+
+      return formattedRows;
+    }
+
+    function extractTransactionsFromRows(rows) {
+      const transactions = [];
+      const dateRegex = /^(\d{1,2}[\/\-\.]\d{1,2}([\/\-\.]\d{2,4})?|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2}(,?\s+\d{2,4})?)$/i;
+      const moneyRegex = /^[-−—]?\$?\(?\d{1,3}(?:,\d{3})*(?:\.\d{2})?\)?[-−—]?$/;
+
+      for (let r = 0; r < rows.length; r++) {
+        const lineItems = rows[r];
+        if (!lineItems || lineItems.length < 2) continue;
+
+        const firstItem = lineItems[0].trim();
+        const startsWithDate = dateRegex.test(firstItem);
+
+        if (startsWithDate) {
+          const date = firstItem;
+          const remaining = lineItems.slice(1);
+
+          const moneyTokens = [];
+          const textTokens = [];
+
+          for (const token of remaining) {
+            const cleanToken = token.trim();
+            if (moneyRegex.test(cleanToken) && /\d/.test(cleanToken)) {
+              moneyTokens.push(cleanToken);
+            } else {
+              textTokens.push(cleanToken);
+            }
+          }
+
+          const description = textTokens.join(' ').trim() || 'Transaction';
+
+          let debit = '';
+          let credit = '';
+          let balance = '';
+
+          if (moneyTokens.length === 1) {
+            const amtStr = moneyTokens[0];
+            const isNegative = amtStr.includes('-') || amtStr.includes('(') || /DR/i.test(amtStr);
+            const cleanVal = cleanCurrency(amtStr);
+
+            if (isNegative || /WITHDRAWAL|PAYMENT|FEE|PURCHASE|DEBIT/i.test(description)) {
+              debit = cleanVal;
+            } else {
+              credit = cleanVal;
+            }
+          } else if (moneyTokens.length === 2) {
+            const val1 = moneyTokens[0];
+            const val2 = moneyTokens[1];
+
+            if (/DEPOSIT|CREDIT|TRANSFER IN/i.test(description)) {
+              credit = cleanCurrency(val1);
+              balance = cleanCurrency(val2);
+            } else {
+              debit = cleanCurrency(val1);
+              balance = cleanCurrency(val2);
+            }
+          } else if (moneyTokens.length >= 3) {
+            debit = moneyTokens[0] !== '-' ? cleanCurrency(moneyTokens[0]) : '';
+            credit = moneyTokens[1] !== '-' ? cleanCurrency(moneyTokens[1]) : '';
+            balance = cleanCurrency(moneyTokens[2]);
+          }
+
+          transactions.push({
+            id: 'tx-' + Math.random().toString(36).substr(2, 9),
+            Date: date,
+            Description: description,
+            Debit: debit,
+            Credit: credit,
+            Balance: balance
+          });
+        }
+      }
+
+      return transactions;
+    }
+
+    function cleanCurrency(str) {
+      if (!str) return '';
+      let val = str.replace(/[$\s]/g, '').trim();
+      val = val.replace(/^\((.*)\)$/, '$1');
+      val = val.replace(/^[-−—]/, '');
+      return val;
+    }
+
+    // ==========================================
+    // 4. PDF.js Canvas Rendering & Page Navigation (Left Column)
+    // ==========================================
+    async function renderPdfPage(pageNum) {
+      canvasLoading.classList.remove('hidden');
+
+      try {
+        if (!STATE.pdfDoc) {
+          // Render realistic sample statement page on canvas
+          renderSampleStatementToCanvas(pageNum);
+          updatePageControls();
+          canvasLoading.classList.add('hidden');
+          return;
+        }
+
+        const page = await STATE.pdfDoc.getPage(pageNum);
+        const ctx = pdfCanvas.getContext('2d');
+
+        // Determine container width to scale properly
+        const containerWidth = canvasViewport.clientWidth || 550;
+        const unscaledViewport = page.getViewport({ scale: 1 });
+        const targetWidth = Math.max(containerWidth - 36, 460);
+        const baseScale = targetWidth / unscaledViewport.width;
+        const finalScale = baseScale * STATE.zoomScale;
+
+        const viewport = page.getViewport({ scale: finalScale });
+        const pixelRatio = window.devicePixelRatio || 1;
+
+        pdfCanvas.width = Math.floor(viewport.width * pixelRatio);
+        pdfCanvas.height = Math.floor(viewport.height * pixelRatio);
+        pdfCanvas.style.width = Math.floor(viewport.width) + 'px';
+        pdfCanvas.style.height = Math.floor(viewport.height) + 'px';
+
+        const renderContext = {
+          canvasContext: ctx,
+          viewport: viewport,
+          transform: pixelRatio !== 1 ? [pixelRatio, 0, 0, pixelRatio, 0, 0] : null
+        };
+
+        if (activeRenderTask) {
+          try {
+            activeRenderTask.cancel();
+          } catch (e) {
+            // Task already finished or cancelled
+          }
+        }
+
+        activeRenderTask = page.render(renderContext);
+        await activeRenderTask.promise;
+
+      } catch (err) {
+        if (err && err.name !== 'RenderingCancelledException') {
+          console.error('Canvas render error:', err);
+        }
+      } finally {
+        canvasLoading.classList.add('hidden');
+        updatePageControls();
+      }
+    }
+
+    /**
+     * Renders a crisp, authentic Bank of America / Chase style statement page
+     * onto the canvas when the user tries the sample demo without a local PDF file.
+     */
+    function renderSampleStatementToCanvas(pageNum) {
+      const ctx = pdfCanvas.getContext('2d');
+      const width = 640;
+      const height = 840;
+      const pixelRatio = window.devicePixelRatio || 1;
+
+      pdfCanvas.width = width * pixelRatio;
+      pdfCanvas.height = height * pixelRatio;
+      pdfCanvas.style.width = (width * STATE.zoomScale) + 'px';
+      pdfCanvas.style.height = (height * STATE.zoomScale) + 'px';
+
+      ctx.save();
+      ctx.scale(pixelRatio, pixelRatio);
+
+      // Background paper
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, width, height);
+
+      // Top Red/Navy Bank Header Bar
+      ctx.fillStyle = '#c5221f';
+      ctx.fillRect(0, 0, width, 10);
+      ctx.fillStyle = '#0f2942';
+      ctx.fillRect(0, 10, width, 55);
+
+      // Bank Logo Text
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 20px sans-serif';
+      ctx.fillText('BANK OF AMERICA', 32, 45);
+
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = '11px sans-serif';
+      ctx.fillText('Preferred Banking Account', 32, 58);
+
+      // Statement Overview Meta Box
+      ctx.fillStyle = '#1e293b';
+      ctx.font = 'bold 15px sans-serif';
+      ctx.fillText('ACCOUNT STATEMENT', 32, 100);
+
+      ctx.fillStyle = '#64748b';
+      ctx.font = '11px sans-serif';
+      ctx.fillText(`Statement Period: Oct 01, 2026 to Oct 31, 2026`, 32, 120);
+      ctx.fillText(`Account Number: **** **** **** 4892`, 32, 136);
+      const customerName = (STATE.user && STATE.user.signedIn && STATE.user.name && STATE.user.name !== 'Guest') 
+        ? STATE.user.name 
+        : 'Valued Customer';
+      ctx.fillText(`Customer: ${customerName} | Austin, TX`, 32, 152);
+
+      // Page Badge Right
+      ctx.fillStyle = '#f1f5f9';
+      ctx.fillRect(width - 150, 90, 118, 48);
+      ctx.fillStyle = '#334155';
+      ctx.font = 'bold 12px sans-serif';
+      ctx.fillText(`Page ${pageNum} of ${STATE.currentDoc.numPages || 3}`, width - 135, 115);
+      ctx.fillStyle = '#64748b';
+      ctx.font = '10px sans-serif';
+      ctx.fillText('Checking Primary', width - 135, 130);
+
+      // Horizontal Divider
+      ctx.strokeStyle = '#cbd5e1';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(32, 175);
+      ctx.lineTo(width - 32, 175);
+      ctx.stroke();
+
+      // Table Header Row
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillRect(32, 185, width - 64, 28);
+      ctx.fillStyle = '#334155';
+      ctx.font = 'bold 10px sans-serif';
+      ctx.fillText('DATE', 42, 203);
+      ctx.fillText('DESCRIPTION', 115, 203);
+      ctx.fillText('DEBIT ($)', 380, 203);
+      ctx.fillText('CREDIT ($)', 465, 203);
+      ctx.fillText('BALANCE ($)', 545, 203);
+
+      // Sample transactions for this page
+      const pageTransactions = getSampleTransactionsForPage(pageNum);
+      let currentY = 232;
+
+      ctx.font = '10px sans-serif';
+      pageTransactions.forEach((tx, idx) => {
+        // Alternating row background
+        if (idx % 2 === 1) {
+          ctx.fillStyle = '#fbfcfe';
+          ctx.fillRect(32, currentY - 14, width - 64, 22);
+        }
+
+        ctx.fillStyle = '#334155';
+        ctx.fillText(tx.Date, 42, currentY);
+
+        ctx.fillStyle = '#0f172a';
+        ctx.font = '500 10px sans-serif';
+        ctx.fillText(truncateText(tx.Description, 42), 115, currentY);
+
+        ctx.font = '10px monospace';
+        if (tx.Debit) {
+          ctx.fillStyle = '#b91c1c';
+          ctx.fillText(tx.Debit, 380, currentY);
+        }
+        if (tx.Credit) {
+          ctx.fillStyle = '#15803d';
+          ctx.fillText(tx.Credit, 465, currentY);
+        }
+        ctx.fillStyle = '#334155';
+        ctx.fillText(tx.Balance, 545, currentY);
+
+        currentY += 24;
+      });
+
+      // Bottom Disclaimer
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = '9px sans-serif';
+      ctx.fillText('Member FDIC &bull; Equal Housing Lender &bull; Reconcile PDF Local In-Memory Rendering', 32, height - 30);
+
+      ctx.restore();
+    }
+
+    function truncateText(str, maxChars) {
+      if (!str) return '';
+      return str.length > maxChars ? str.substring(0, maxChars - 3) + '...' : str;
+    }
+
+    function getSampleTransactionsForPage(pageNum) {
+      const allTx = STATE.currentDoc.mappedTransactions || [];
+      const perPage = 5;
+      const start = (pageNum - 1) * perPage;
+      return allTx.slice(start, start + perPage);
+    }
+
+    /**
+     * Updates 'Previous Page' and 'Next Page' button states,
+     * page counter text, and free-tier cap indicators.
+     */
+    function updatePageControls() {
+      const totalDocPages = STATE.currentDoc.numPages || 1;
+      // Free tier caps browsing up to 5 pages per document
+      const maxAvailablePages = STATE.user.isPro ? totalDocPages : Math.min(totalDocPages, 5);
+
+      pageIndicatorText.textContent = `Page ${STATE.currentPageNum} of ${maxAvailablePages}`;
+
+      if (totalDocPages > 5 && !STATE.user.isPro) {
+        pageLimitHint.textContent = `Browsing pages 1 to 5 (Free Tier)`;
+        pageLimitHint.classList.add('text-amber-600');
+      } else {
+        pageLimitHint.textContent = `Page ${STATE.currentPageNum} of ${totalDocPages}`;
+        pageLimitHint.classList.remove('text-amber-600');
+      }
+
+      prevPageBtn.disabled = STATE.currentPageNum <= 1;
+      nextPageBtn.disabled = STATE.currentPageNum >= maxAvailablePages;
+    }
+
+    // Previous Page Button Click
+    prevPageBtn.addEventListener('click', () => {
+      if (STATE.currentPageNum > 1) {
+        STATE.currentPageNum--;
+        renderPdfPage(STATE.currentPageNum);
+      }
+    });
+
+    // Next Page Button Click
+    nextPageBtn.addEventListener('click', () => {
+      const totalDocPages = STATE.currentDoc.numPages || 1;
+      const maxAvailablePages = STATE.user.isPro ? totalDocPages : Math.min(totalDocPages, 5);
+
+      if (STATE.currentPageNum < maxAvailablePages) {
+        STATE.currentPageNum++;
+        renderPdfPage(STATE.currentPageNum);
+      }
+    });
+
+    // Zoom Controls
+    zoomInBtn.addEventListener('click', () => {
+      if (STATE.zoomScale < 1.7) {
+        STATE.zoomScale += 0.15;
+        updateZoomDisplay();
+        renderPdfPage(STATE.currentPageNum);
+      }
+    });
+
+    zoomOutBtn.addEventListener('click', () => {
+      if (STATE.zoomScale > 0.6) {
+        STATE.zoomScale -= 0.15;
+        updateZoomDisplay();
+        renderPdfPage(STATE.currentPageNum);
+      }
+    });
+
+    zoomFitBtn.addEventListener('click', () => {
+      STATE.zoomScale = 1.0;
+      updateZoomDisplay();
+      renderPdfPage(STATE.currentPageNum);
+    });
+
+    function updateZoomDisplay() {
+      zoomLevelText.textContent = `${Math.round(STATE.zoomScale * 100)}%`;
+    }
+
+    // ==========================================
+    // 5. Sample Bank Statement Generator (Chase / BofA style)
+    // ==========================================
+    loadSampleBtn.addEventListener('click', () => {
+      checkQuotaGate(() => {
+        loadMockBankStatement();
+      });
+    });
+
+    function loadMockBankStatement() {
+      showProcessingUI('sample_bank_of_america_statement.pdf');
+      
+      setTimeout(() => {
+        const sampleTransactions = [
+          { id: 'tx-1', Date: '10/01/2026', Description: 'DIRECT DEP - PAYROLL ACME CORP', Debit: '', Credit: '3450.00', Balance: '8450.25' },
+          { id: 'tx-2', Date: '10/02/2026', Description: 'WHOLE FOODS MKT #1042 AUSTIN TX', Debit: '84.32', Credit: '', Balance: '8365.93' },
+          { id: 'tx-3', Date: '10/03/2026', Description: 'STARBUCKS STORE 08492 SAN JOSE', Debit: '6.75', Credit: '', Balance: '8359.18' },
+          { id: 'tx-4', Date: '10/04/2026', Description: 'CHEVRON 0093844 FUEL SEATTLE WA', Debit: '48.50', Credit: '', Balance: '8310.68' },
+          { id: 'tx-5', Date: '10/05/2026', Description: 'MONTHLY WIRE TRANSFER RE: CLIENT FEE', Debit: '', Credit: '1200.00', Balance: '9510.68' },
+          { id: 'tx-6', Date: '10/06/2026', Description: 'NETFLIX.COM STREAMING SUBSCRIPTION', Debit: '19.99', Credit: '', Balance: '9490.69' },
+          { id: 'tx-7', Date: '10/08/2026', Description: 'AMAZON.COM*MD39K RETAIL WA', Debit: '142.10', Credit: '', Balance: '9348.59' },
+          { id: 'tx-8', Date: '10/10/2026', Description: 'EQUINOX FITNESS MEMBERSHIP OCT', Debit: '250.00', Credit: '', Balance: '9098.59' },
+          { id: 'tx-9', Date: '10/12/2026', Description: 'INTEREST PAYMENT EARNED THIS PERIOD', Debit: '', Credit: '14.28', Balance: '9112.87' },
+          { id: 'tx-10', Date: '10/14/2026', Description: 'UBER TECHNOLOGIES TRIP 093849', Debit: '32.40', Credit: '', Balance: '9080.47' },
+          { id: 'tx-11', Date: '10/15/2026', Description: 'APPLE STORE ICLOUD 2TB STORAGE', Debit: '9.99', Credit: '', Balance: '9070.48' },
+          { id: 'tx-12', Date: '10/18/2026', Description: 'CON EDISON UTILITIES AUTOMATIC PAY', Debit: '115.60', Credit: '', Balance: '8954.88' },
+          { id: 'tx-13', Date: '10/20/2026', Description: 'FREELANCE DESIGN INVOICE #1094', Debit: '', Credit: '850.00', Balance: '9804.88' },
+          { id: 'tx-14', Date: '10/24/2026', Description: 'TRADER JOES #492 GROCERY', Debit: '64.12', Credit: '', Balance: '9740.76' },
+          { id: 'tx-15', Date: '10/28/2026', Description: 'MUNICIPAL PARKING METERS', Debit: '8.00', Credit: '', Balance: '9732.76' }
+        ];
+
+        STATE.pdfDoc = null; // Use canvas synthesis for sample demo
+        STATE.currentPageNum = 1;
+        STATE.currentDoc.name = 'sample_bank_of_america_statement.pdf';
+        STATE.currentDoc.numPages = 3;
+        STATE.currentDoc.processedPages = 3;
+
+        recordConversion();
+        displayResults(sampleTransactions, '0.08');
+        renderPdfPage(1);
+
+        showToast('Sample bank statement loaded with side-by-side view!');
+      }, 500);
+    }
+
+    // ==========================================
+    // 6. Results Display & Table Rendering (Right Column)
+    // ==========================================
+    function showProcessingUI(filename) {
+      uploadHeroSection.classList.add('hidden');
+      resultsSection.classList.add('hidden');
+      processingSection.classList.remove('hidden');
+      document.getElementById('processingTitle').textContent = `Parsing "${filename}"...`;
+      document.getElementById('processingProgressBar').style.width = '20%';
+    }
+
+    function updateProcessingProgress(page, total) {
+      const pct = Math.round((page / total) * 100);
+      document.getElementById('processingProgressBar').style.width = pct + '%';
+      document.getElementById('processingProgressText').textContent = `Processing Page ${page} of ${total}`;
+    }
+
+    function hideProcessingUI() {
+      processingSection.classList.add('hidden');
+      uploadHeroSection.classList.remove('hidden');
+    }
+
+    function displayResults(transactions, parseDurationSec) {
+      processingSection.classList.add('hidden');
+      uploadHeroSection.classList.add('hidden');
+      resultsSection.classList.remove('hidden');
+
+      STATE.currentDoc.mappedTransactions = transactions;
+
+      currentDocName.textContent = STATE.currentDoc.name;
+      pageCountBadge.textContent = `${STATE.currentDoc.processedPages} of ${STATE.currentDoc.numPages} pages`;
+      statRowCount.textContent = `${transactions.length} rows parsed`;
+      statParseTime.textContent = `${parseDurationSec}s local parse`;
+
+      if (STATE.currentDoc.numPages > 5 && !STATE.user.isPro) {
+        pageCapBanner.classList.remove('hidden');
+        pageCapDetails.textContent = `Processed pages 1-5 of ${STATE.currentDoc.numPages}. Upgrade to process all pages.`;
+      } else {
+        pageCapBanner.classList.add('hidden');
+      }
+
+      resetColumnMappingSelects();
+      renderTableRows();
+      recalculateMetrics();
+      updatePageControls();
+    }
+
+    function resetColumnMappingSelects() {
+      STATE.columnMapping = ['Date', 'Description', 'Debit', 'Credit', 'Balance'];
+      colMapperSelects.forEach((select, idx) => {
+        select.value = STATE.columnMapping[idx] || 'Ignore';
+      });
+    }
+
+    function renderTableRows() {
+      const searchTerm = (tableSearchInput.value || '').toLowerCase().trim();
+      const transactions = STATE.currentDoc.mappedTransactions;
+
+      const filtered = transactions.filter(tx => {
+        if (!searchTerm) return true;
+        return (
+          (tx.Date && tx.Date.toLowerCase().includes(searchTerm)) ||
+          (tx.Description && tx.Description.toLowerCase().includes(searchTerm)) ||
+          (tx.Debit && tx.Debit.toLowerCase().includes(searchTerm)) ||
+          (tx.Credit && tx.Credit.toLowerCase().includes(searchTerm)) ||
+          (tx.Balance && tx.Balance.toLowerCase().includes(searchTerm))
+        );
+      });
+
+      if (filtered.length === 0) {
+        transactionTableBody.innerHTML = `
+          <tr>
+            <td colspan="7" class="p-8 text-center text-slate-400">
+              No transactions match your search or filter.
+            </td>
+          </tr>
+        `;
+        visibleRowCountText.textContent = `Showing 0 of ${transactions.length} rows`;
+        return;
+      }
+
+      let html = '';
+      filtered.forEach((tx, rowIdx) => {
+        const col0Val = getFieldValue(tx, STATE.columnMapping[0]);
+        const col1Val = getFieldValue(tx, STATE.columnMapping[1]);
+        const col2Val = getFieldValue(tx, STATE.columnMapping[2]);
+        const col3Val = getFieldValue(tx, STATE.columnMapping[3]);
+        const col4Val = getFieldValue(tx, STATE.columnMapping[4]);
+
+        html += `
+          <tr data-id="${tx.id}" class="hover:bg-blue-50/40 group transition-colors">
+            <td class="p-2.5 text-slate-400 font-mono text-center select-none text-[11px] w-10">${rowIdx + 1}</td>
+            
+            <!-- Col 0: Date (>= 130px) -->
+            <td class="p-2.5 font-medium text-slate-800 min-w-[130px]" contenteditable="true" data-field="${STATE.columnMapping[0]}">
+              ${escapeHtml(col0Val)}
+            </td>
+            
+            <!-- Col 1: Description (>= 300px) -->
+            <td class="p-2.5 text-slate-700 min-w-[300px]" contenteditable="true" data-field="${STATE.columnMapping[1]}">
+              ${escapeHtml(col1Val)}
+            </td>
+            
+            <!-- Col 2: Debit (>= 130px) -->
+            <td class="p-2.5 font-mono min-w-[130px] ${STATE.columnMapping[2] === 'Debit' && col2Val ? 'text-rose-600 font-semibold' : 'text-slate-800'}" contenteditable="true" data-field="${STATE.columnMapping[2]}">
+              ${escapeHtml(col2Val)}
+            </td>
+            
+            <!-- Col 3: Credit (>= 130px) -->
+            <td class="p-2.5 font-mono min-w-[130px] ${STATE.columnMapping[3] === 'Credit' && col3Val ? 'text-emerald-600 font-semibold' : 'text-slate-800'}" contenteditable="true" data-field="${STATE.columnMapping[3]}">
+              ${escapeHtml(col3Val)}
+            </td>
+            
+            <!-- Col 4: Balance (>= 130px) -->
+            <td class="p-2.5 font-mono text-slate-700 font-medium min-w-[130px]" contenteditable="true" data-field="${STATE.columnMapping[4]}">
+              ${escapeHtml(col4Val)}
+            </td>
+
+            <!-- Row Delete Action -->
+            <td class="p-2.5 text-center w-10">
+              <button 
+                class="delete-row-btn opacity-0 group-hover:opacity-100 text-slate-300 hover:text-rose-600 transition-all p-1" 
+                data-id="${tx.id}" 
+                title="Delete row">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+              </button>
+            </td>
+          </tr>
+        `;
+      });
+
+      transactionTableBody.innerHTML = html;
+      visibleRowCountText.textContent = `Showing ${filtered.length} of ${transactions.length} transactions`;
+
+      attachCellEditListeners();
+    }
+
+    function getFieldValue(item, field) {
+      if (!field || field === 'Ignore') return '';
+      return item[field] || '';
+    }
+
+    function attachCellEditListeners() {
+      const editableCells = transactionTableBody.querySelectorAll('[contenteditable="true"]');
+      editableCells.forEach(cell => {
+        cell.addEventListener('blur', e => {
+          const rowEl = e.target.closest('tr');
+          const id = rowEl.getAttribute('data-id');
+          const field = e.target.getAttribute('data-field');
+          const newVal = e.target.textContent.trim();
+
+          const targetTx = STATE.currentDoc.mappedTransactions.find(t => t.id === id);
+          if (targetTx && field) {
+            targetTx[field] = newVal;
+            recalculateMetrics();
+          }
+        });
+      });
+
+      const deleteButtons = transactionTableBody.querySelectorAll('.delete-row-btn');
+      deleteButtons.forEach(btn => {
+        btn.addEventListener('click', e => {
+          const id = e.currentTarget.getAttribute('data-id');
+          STATE.currentDoc.mappedTransactions = STATE.currentDoc.mappedTransactions.filter(t => t.id !== id);
+          renderTableRows();
+          recalculateMetrics();
+          showToast('Row removed');
+        });
+      });
+    }
+
+    function recalculateMetrics() {
+      let debitTotal = 0;
+      let creditTotal = 0;
+      const count = STATE.currentDoc.mappedTransactions.length;
+
+      STATE.currentDoc.mappedTransactions.forEach(tx => {
+        const d = parseFloat(String(tx.Debit).replace(/,/g, ''));
+        const c = parseFloat(String(tx.Credit).replace(/,/g, ''));
+        if (!isNaN(d)) debitTotal += d;
+        if (!isNaN(c)) creditTotal += c;
+      });
+
+      const net = creditTotal - debitTotal;
+
+      metricCount.textContent = count.toLocaleString();
+      metricDebits.textContent = `-$${debitTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      metricCredits.textContent = `+$${creditTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      metricNet.textContent = `${net >= 0 ? '+' : '-'}$${Math.abs(net).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      metricNet.className = `text-lg sm:text-xl font-bold mt-0.5 ${net >= 0 ? 'text-emerald-600' : 'text-rose-600'}`;
+    }
+
+    // ==========================================
+    // 7. Column Remapping & Actions
+    // ==========================================
+    colMapperSelects.forEach(select => {
+      select.addEventListener('change', e => {
+        const colIdx = parseInt(e.target.getAttribute('data-col-idx'), 10);
+        const newField = e.target.value;
+        STATE.columnMapping[colIdx] = newField;
+        renderTableRows();
+        showToast(`Column ${String.fromCharCode(65 + colIdx)} remapped to ${newField}`);
+      });
+    });
+
+    swapDebitCreditBtn.addEventListener('click', () => {
+      let debitIdx = STATE.columnMapping.indexOf('Debit');
+      let creditIdx = STATE.columnMapping.indexOf('Credit');
+
+      if (debitIdx !== -1 && creditIdx !== -1) {
+        STATE.columnMapping[debitIdx] = 'Credit';
+        STATE.columnMapping[creditIdx] = 'Debit';
+
+        colMapperSelects[debitIdx].value = 'Credit';
+        colMapperSelects[creditIdx].value = 'Debit';
+
+        renderTableRows();
+        showToast('Swapped Debit and Credit columns! ⇄');
+      } else {
+        STATE.currentDoc.mappedTransactions.forEach(tx => {
+          const temp = tx.Debit;
+          tx.Debit = tx.Credit;
+          tx.Credit = temp;
+        });
+        renderTableRows();
+        recalculateMetrics();
+        showToast('Swapped Debit and Credit values! ⇄');
+      }
+    });
+
+    tableSearchInput.addEventListener('input', () => {
+      renderTableRows();
+    });
+
+    addRowBtn.addEventListener('click', () => {
+      const today = new Date().toISOString().slice(5, 10).replace('-', '/');
+      const newTx = {
+        id: 'tx-' + Math.random().toString(36).substr(2, 9),
+        Date: today,
+        Description: 'New Transaction',
+        Debit: '',
+        Credit: '0.00',
+        Balance: ''
+      };
+      STATE.currentDoc.mappedTransactions.unshift(newTx);
+      renderTableRows();
+      recalculateMetrics();
+      showToast('New row added at the top.');
+    });
+
+    // Export CSV
+    downloadCsvBtn.addEventListener('click', () => {
+      exportToCsv();
+    });
+
+    function exportToCsv() {
+      const transactions = STATE.currentDoc.mappedTransactions;
+      if (!transactions || transactions.length === 0) {
+        showToast('No transactions to export.', '⚠️');
+        return;
+      }
+
+      const activeColumns = STATE.columnMapping.filter(col => col !== 'Ignore');
+      const headerRow = activeColumns.map(col => `"${col.replace(/"/g, '""')}"`).join(',');
+      const csvRows = transactions.map(tx => {
+        return activeColumns.map(col => {
+          const val = String(tx[col] || '').trim();
+          return `"${val.replace(/"/g, '""')}"`;
+        }).join(',');
+      });
+
+      const csvContent = [headerRow, ...csvRows].join('\r\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      
+      const a = document.createElement('a');
+      a.href = url;
+      const baseFilename = (STATE.currentDoc.name || 'statement').replace(/\.[^/.]+$/, '');
+      a.download = `${baseFilename}_reconciled.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      showToast(`Exported ${transactions.length} rows to CSV! 💾`);
+    }
+
+    // Export to Excel (.xlsx) using SheetJS with dynamic column widths
+    exportExcelBtn.addEventListener('click', () => {
+      exportToExcel();
+    });
+
+    function exportToExcel() {
+      if (typeof XLSX === 'undefined') {
+        showToast('SheetJS library is loading, please try again.', '⚠️');
+        return;
+      }
+
+      const transactions = STATE.currentDoc.mappedTransactions;
+      if (!transactions || transactions.length === 0) {
+        showToast('No transactions to export.', '⚠️');
+        return;
+      }
+
+      // Active mapped columns
+      const activeColumns = STATE.columnMapping.filter(col => col !== 'Ignore');
+
+      // Data array for worksheet: Row 0 is header titles
+      const aoaData = [
+        activeColumns
+      ];
+
+      transactions.forEach(tx => {
+        const row = activeColumns.map(col => {
+          const val = tx[col] ?? '';
+          // If numeric column (Debit, Credit, Balance) with valid number, format as real numeric cell for Excel
+          if ((col === 'Debit' || col === 'Credit' || col === 'Balance') && val !== '') {
+            const num = parseFloat(String(val).replace(/,/g, ''));
+            return isNaN(num) ? String(val) : num;
+          }
+          return String(val);
+        });
+        aoaData.push(row);
+      });
+
+      const worksheet = XLSX.utils.aoa_to_sheet(aoaData);
+
+      // Calculate the maximum length of text in each column, apply it to worksheet['!cols'] with a minimum width of 14
+      const colWidths = activeColumns.map((colName, colIdx) => {
+        let maxLen = colName ? String(colName).length : 0;
+
+        for (let r = 0; r < aoaData.length; r++) {
+          const cellVal = aoaData[r][colIdx];
+          if (cellVal !== undefined && cellVal !== null) {
+            const strVal = typeof cellVal === 'number' 
+              ? cellVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+              : String(cellVal);
+            if (strVal.length > maxLen) {
+              maxLen = strVal.length;
+            }
+          }
+        }
+
+        return { wch: Math.max(maxLen, 14) };
+      });
+
+      worksheet['!cols'] = colWidths;
+
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Reconciled Statement');
+
+      const baseFilename = (STATE.currentDoc.name || 'statement').replace(/\.[^/.]+$/, '');
+      XLSX.writeFile(workbook, `${baseFilename}_reconciled.xlsx`);
+
+      showToast(`Exported ${transactions.length} rows to Excel (.xlsx)! 📊`);
+    }
+
+    // Copy Table to Clipboard
+    copyTableBtn.addEventListener('click', async () => {
+      const transactions = STATE.currentDoc.mappedTransactions;
+      if (!transactions || transactions.length === 0) {
+        showToast('No transactions to copy.', '⚠️');
+        return;
+      }
+
+      const activeColumns = STATE.columnMapping.filter(col => col !== 'Ignore');
+      const headerLine = activeColumns.join('\t');
+      const rowLines = transactions.map(tx => {
+        return activeColumns.map(col => String(tx[col] || '').trim()).join('\t');
+      });
+
+      const tsvContent = [headerLine, ...rowLines].join('\n');
+
+      try {
+        await navigator.clipboard.writeText(tsvContent);
+        copyBtnText.textContent = 'Copied!';
+        showToast(`Copied ${transactions.length} rows! Paste directly into Excel or Sheets.`);
+        setTimeout(() => {
+          copyBtnText.textContent = 'Copy Table';
+        }, 2000);
+      } catch (err) {
+        const textArea = document.createElement('textarea');
+        textArea.value = tsvContent;
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+        showToast(`Copied ${transactions.length} rows to clipboard!`);
+      }
+    });
+
+    newUploadBtn.addEventListener('click', () => {
+      resultsSection.classList.add('hidden');
+      uploadHeroSection.classList.remove('hidden');
+      fileInput.value = '';
+      if (activeRenderTask) {
+        try { activeRenderTask.cancel(); } catch(e){}
+      }
+      STATE.pdfDoc = null;
+    });
+
+    // Window resize handler to refit canvas smoothly
+    let resizeTimer = null;
+    window.addEventListener('resize', () => {
+      if (resizeTimer) clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        if (!resultsSection.classList.contains('hidden')) {
+          renderPdfPage(STATE.currentPageNum);
+        }
+      }, 250);
+    });
+
+    // Modal listeners
+    closeAuthModalBtn.addEventListener('click', closeGoogleModal);
+    mockUpgradeProBtn.addEventListener('click', handleUpgradePro);
+    closeProModalBtn.addEventListener('click', closeProModal);
+    bannerUpgradeBtn.addEventListener('click', openProModal);
+    quotaInfoBtn.addEventListener('click', () => {
+      if (STATE.user.isPro) {
+        showToast('Pro Account: Unlimited conversions & pages enabled.');
+      } else {
+        openProModal();
+      }
+    });
+    footerResetBtn.addEventListener('click', resetQuotaState);
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    let toastTimeout = null;
+    function showToast(message, icon = '📋') {
+      if (toastTimeout) clearTimeout(toastTimeout);
+      toastMsg.textContent = message;
+      toastIcon.textContent = icon;
+      toast.classList.remove('translate-y-16', 'opacity-0');
+      toastTimeout = setTimeout(() => {
+        toast.classList.add('translate-y-16', 'opacity-0');
+      }, 3200);
+    }
+
+    // Initialize application on load
+    window.addEventListener('DOMContentLoaded', () => {
+      loadPersistedState();
+    });
+  </script>
+</body>
+</html>

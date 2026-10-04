@@ -1190,87 +1190,244 @@
       return formattedRows;
     }
 
-    function extractTransactionsFromRows(rows) {
-      const transactions = [];
-      const dateRegex = /^(\d{1,2}[\/\-\.]\d{1,2}([\/\-\.]\d{2,4})?|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2}(,?\s+\d{2,4})?)$/i;
-      const moneyRegex = /^[-−—]?\$?\(?\d{1,3}(?:,\d{3})*(?:\.\d{2})?\)?[-−—]?$/;
+    function extractDate(str) {
+      if (!str) return null;
+      const trimmed = str.trim();
+      
+      // Standard date patterns: MM/DD/YYYY, MM/DD/YY, DD/MM/YYYY, YYYY-MM-DD, MM/DD
+      const m1 = trimmed.match(/^(\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}(?:[-/.]\d{2,4})?)\b/);
+      if (m1) return m1[1];
+      
+      // Textual month dates: Oct 04, Oct 04 2026, 04 Oct 2026, October 4
+      const m2 = trimmed.match(/^((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2}(?:,?\s+\d{2,4})?)\b/i);
+      if (m2) return m2[1];
 
-      for (let r = 0; r < rows.length; r++) {
-        const lineItems = rows[r];
-        if (!lineItems || lineItems.length < 2) continue;
+      const m3 = trimmed.match(/^(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?(?:\s+\d{2,4})?)\b/i);
+      if (m3) return m3[1];
 
-        const firstItem = lineItems[0].trim();
-        const startsWithDate = dateRegex.test(firstItem);
+      return null;
+    }
 
-        if (startsWithDate) {
-          const date = firstItem;
-          const remaining = lineItems.slice(1);
-
-          const moneyTokens = [];
-          const textTokens = [];
-
-          for (const token of remaining) {
-            const cleanToken = token.trim();
-            if (moneyRegex.test(cleanToken) && /\d/.test(cleanToken)) {
-              moneyTokens.push(cleanToken);
-            } else {
-              textTokens.push(cleanToken);
-            }
-          }
-
-          const description = textTokens.join(' ').trim() || 'Transaction';
-
-          let debit = '';
-          let credit = '';
-          let balance = '';
-
-          if (moneyTokens.length === 1) {
-            const amtStr = moneyTokens[0];
-            const isNegative = amtStr.includes('-') || amtStr.includes('(') || /DR/i.test(amtStr);
-            const cleanVal = cleanCurrency(amtStr);
-
-            if (isNegative || /WITHDRAWAL|PAYMENT|FEE|PURCHASE|DEBIT/i.test(description)) {
-              debit = cleanVal;
-            } else {
-              credit = cleanVal;
-            }
-          } else if (moneyTokens.length === 2) {
-            const val1 = moneyTokens[0];
-            const val2 = moneyTokens[1];
-
-            if (/DEPOSIT|CREDIT|TRANSFER IN/i.test(description)) {
-              credit = cleanCurrency(val1);
-              balance = cleanCurrency(val2);
-            } else {
-              debit = cleanCurrency(val1);
-              balance = cleanCurrency(val2);
-            }
-          } else if (moneyTokens.length >= 3) {
-            debit = moneyTokens[0] !== '-' ? cleanCurrency(moneyTokens[0]) : '';
-            credit = moneyTokens[1] !== '-' ? cleanCurrency(moneyTokens[1]) : '';
-            balance = cleanCurrency(moneyTokens[2]);
-          }
-
-          transactions.push({
-            id: 'tx-' + Math.random().toString(36).substr(2, 9),
-            Date: date,
-            Description: description,
-            Debit: debit,
-            Credit: credit,
-            Balance: balance
-          });
-        }
-      }
-
-      return transactions;
+    function extractMoneyTokens(str) {
+      if (!str) return [];
+      // Match numerical monetary tokens (e.g., 1,234.56, -45.00, $20.00, 50.00CR)
+      const regex = /[-−—]?\$?\(?[\d,]+\.\d{2}\)?[-−—]?(?:CR|DR)?/gi;
+      const matches = str.match(regex);
+      if (!matches) return [];
+      return matches.filter(m => /[\d,]+\.\d{2}/.test(m));
     }
 
     function cleanCurrency(str) {
       if (!str) return '';
-      let val = str.replace(/[$\s]/g, '').trim();
-      val = val.replace(/^\((.*)\)$/, '$1');
-      val = val.replace(/^[-−—]/, '');
+      let val = String(str).replace(/[$\s]/g, '').trim();
+      val = val.replace(/^\((.*)\)$/, '$1'); // (50.00) -> 50.00
+      val = val.replace(/^[-−—+]/, '');
+      val = val.replace(/(CR|DR)$/i, '').trim();
       return val;
+    }
+
+    function finalizeTransaction(tx) {
+      if (!tx || !tx.date) return null;
+
+      let description = tx.descLines.join(' ').replace(/\s+/g, ' ').trim();
+      if (!description) {
+        description = 'Transaction';
+      }
+
+      const rawTextUpper = (description + ' ' + (tx.rawAmountsText || '')).toUpperCase();
+      // Identify credit transactions based on keywords
+      const isCreditKeyword = /\b(CR|FROM|DEPOSIT|DEPOSITS|REMITTANCE|REMITTANCES|INTEREST\s+CREDIT|PAYROLL|REFUND|TRANSFER\s+IN)\b/i.test(rawTextUpper);
+
+      let debit = '';
+      let credit = '';
+      let balance = '';
+
+      const tokens = tx.amountTokens;
+
+      if (tokens.length === 1) {
+        const amtStr = tokens[0];
+        const isNegative = amtStr.includes('-') || amtStr.includes('(') || /\bDR\b/i.test(amtStr);
+        const cleanVal = cleanCurrency(amtStr);
+
+        if (isCreditKeyword && !isNegative) {
+          credit = cleanVal;
+        } else {
+          debit = cleanVal;
+        }
+      } else if (tokens.length === 2) {
+        // When 2 amounts are present: treat last as Balance and preceding as Debit or Credit
+        const amt1 = tokens[0];
+        const amt2 = tokens[1];
+        const cleanAmt1 = cleanCurrency(amt1);
+        const isAmt1Credit = isCreditKeyword || /CR$/i.test(amt1) || amt1.includes('+');
+
+        if (isAmt1Credit && !amt1.includes('-') && !amt1.includes('(')) {
+          credit = cleanAmt1;
+        } else {
+          debit = cleanAmt1;
+        }
+        balance = cleanCurrency(amt2);
+      } else if (tokens.length >= 3) {
+        // Standard multi-column: Debit, Credit, Balance
+        debit = tokens[0] !== '-' ? cleanCurrency(tokens[0]) : '';
+        credit = tokens[1] !== '-' ? cleanCurrency(tokens[1]) : '';
+        balance = cleanCurrency(tokens[2]);
+      }
+
+      return {
+        id: 'tx-' + Math.random().toString(36).substr(2, 9),
+        Date: tx.date,
+        Description: description,
+        Debit: debit,
+        Credit: credit,
+        Balance: balance
+      };
+    }
+
+    /**
+     * Upgraded Date-Anchored Parsing Engine
+     * Groups multi-line statements by date, gathers subsequent descriptions,
+     * extracts amounts, and filters out non-transaction headers and boilerplate.
+     */
+    function extractTransactionsFromRows(rows) {
+      const transactions = [];
+      let currentTx = null;
+
+      // Resilient check: ignore table headers & document metadata
+      const isHeaderRow = (str) => {
+        const s = str.toUpperCase();
+        return (
+          s.includes("POST DATE") ||
+          s.includes("TRANSACTION DETAILS") ||
+          s.includes("RUNNING BAL") ||
+          s.includes("ACCOUNT ACTIVITY") ||
+          s.includes("STATEMENT PERIOD") ||
+          s.includes("ACCOUNT NUMBER") ||
+          s.includes("DAILY BALANCE SUMMARY") ||
+          s.includes("CHECKING SUMMARY") ||
+          (s.includes("PAGE ") && s.includes(" OF ")) ||
+          (s.includes("DATE") && s.includes("DESCRIPTION") && (s.includes("AMOUNT") || s.includes("BALANCE") || s.includes("DEBIT")))
+        );
+      };
+
+      // Resilient check: handle Opening & Closing balance rows cleanly
+      const isBalanceRow = (str) => {
+        const s = str.toUpperCase();
+        return (
+          s.includes("OPENING BALANCE") ||
+          s.includes("BEGINNING BALANCE") ||
+          s.includes("STARTING BALANCE") ||
+          s.includes("CLOSING BALANCE") ||
+          s.includes("ENDING BALANCE")
+        );
+      };
+
+      for (let r = 0; r < rows.length; r++) {
+        const lineItems = rows[r];
+        if (!lineItems || lineItems.length === 0) continue;
+
+        const fullLineStr = lineItems.join(' ').trim();
+        if (!fullLineStr) continue;
+
+        // Skip non-transaction headers
+        if (isHeaderRow(fullLineStr)) {
+          continue;
+        }
+
+        // Handle Opening / Closing balance cleanly without breaking table flow
+        if (isBalanceRow(fullLineStr)) {
+          if (currentTx) {
+            const finalized = finalizeTransaction(currentTx);
+            if (finalized) transactions.push(finalized);
+            currentTx = null;
+          }
+
+          const moneyMatches = extractMoneyTokens(fullLineStr);
+          const cleanDesc = fullLineStr.replace(/[-−—]?\$?\(?[\d,]+\.\d{2}\)?[-−—]?(?:CR|DR)?/gi, '').replace(/\s+/g, ' ').trim();
+          transactions.push({
+            id: 'tx-' + Math.random().toString(36).substr(2, 9),
+            Date: '',
+            Description: cleanDesc || fullLineStr,
+            Debit: '',
+            Credit: '',
+            Balance: moneyMatches.length > 0 ? cleanCurrency(moneyMatches[moneyMatches.length - 1]) : ''
+          });
+          continue;
+        }
+
+        // Check if line starts with a date
+        const firstToken = lineItems[0].trim();
+        const dateMatch = extractDate(firstToken) || extractDate(fullLineStr);
+        const lineStartsWithDate = Boolean(dateMatch && (
+          firstToken.startsWith(dateMatch) || fullLineStr.startsWith(dateMatch)
+        ));
+
+        if (lineStartsWithDate) {
+          // Finalize previous active transaction
+          if (currentTx) {
+            const finalized = finalizeTransaction(currentTx);
+            if (finalized) transactions.push(finalized);
+          }
+
+          // Start a new date-anchored entry
+          currentTx = {
+            date: dateMatch,
+            descLines: [],
+            amountTokens: [],
+            rawAmountsText: ''
+          };
+
+          // Separate the date from the first line's remaining contents
+          const remainingItems = [];
+          let dateRemoved = false;
+
+          for (const item of lineItems) {
+            const trimmedItem = item.trim();
+            if (!dateRemoved && trimmedItem.startsWith(dateMatch)) {
+              const restOfItem = trimmedItem.slice(dateMatch.length).trim();
+              if (restOfItem) remainingItems.push(restOfItem);
+              dateRemoved = true;
+            } else {
+              remainingItems.push(trimmedItem);
+            }
+          }
+
+          // Collect initial line description and amounts
+          for (const item of remainingItems) {
+            const moneyTokens = extractMoneyTokens(item);
+            if (moneyTokens.length > 0) {
+              currentTx.amountTokens.push(...moneyTokens);
+              currentTx.rawAmountsText += ' ' + item;
+              const textOnly = item.replace(/[-−—]?\$?\(?[\d,]+\.\d{2}\)?[-−—]?(?:CR|DR)?/gi, '').trim();
+              if (textOnly) currentTx.descLines.push(textOnly);
+            } else {
+              currentTx.descLines.push(item);
+            }
+          }
+
+        } else if (currentTx) {
+          // Collect multi-line / stacked subsequent lines into the active transaction
+          for (const item of lineItems) {
+            const moneyTokens = extractMoneyTokens(item);
+            if (moneyTokens.length > 0) {
+              currentTx.amountTokens.push(...moneyTokens);
+              currentTx.rawAmountsText += ' ' + item;
+              const textOnly = item.replace(/[-−—]?\$?\(?[\d,]+\.\d{2}\)?[-−—]?(?:CR|DR)?/gi, '').trim();
+              if (textOnly) currentTx.descLines.push(textOnly);
+            } else {
+              currentTx.descLines.push(item);
+            }
+          }
+        }
+      }
+
+      // Finalize the last transaction
+      if (currentTx) {
+        const finalized = finalizeTransaction(currentTx);
+        if (finalized) transactions.push(finalized);
+      }
+
+      return transactions;
     }
 
     // ==========================================
